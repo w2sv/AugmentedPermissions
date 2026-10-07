@@ -2,6 +2,7 @@ package com.w2sv.augmentedpermissions
 
 import android.annotation.SuppressLint
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -18,8 +19,9 @@ import kotlinx.coroutines.launch
  * and [PermissionState.grantedFromRequest] for observing explicit request
  * results from multiple consumers.
  *
- * [requestHistory] is consulted when deciding whether launching should be treated
- * as suppressed and is updated when the first launched request produces a result.
+ * [requestHistory] supplies persisted request history and records a launch while
+ * its latest collected value is false. Pass `null` to launch without tracking or
+ * suppression.
  *
  * [onPermissionResult] receives the result of each explicit permission request.
  * [onRequestSuppressed] is invoked when [PermissionState.launchRequest]
@@ -28,7 +30,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun rememberPermissionState(
     permission: String,
-    requestHistory: PermissionRequestHistory,
+    requestHistory: PermissionRequestHistory?,
     onPermissionResult: (Boolean) -> Unit = {},
     onRequestSuppressed: () -> Unit = {}
 ): PermissionState {
@@ -36,19 +38,15 @@ fun rememberPermissionState(
 
     val grantedFromRequest = remember(permission) { MutableSharedFlow<Boolean>() }
 
+    val wasRequestLaunchedBefore = requestHistory?.wasRequestLaunchedBefore?.collectAsState(initial = false)?.value
     val currentRequestHistory = rememberUpdatedState(requestHistory)
+    val currentWasRequestLaunchedBefore = rememberUpdatedState(wasRequestLaunchedBefore)
     val currentOnPermissionResult = rememberUpdatedState(onPermissionResult)
     val currentOnRequestSuppressed = rememberUpdatedState(onRequestSuppressed)
 
     val permissionState = rememberAccompanistPermissionState(
         permission = permission,
         onPermissionResult = { granted ->
-            with(currentRequestHistory.value) {
-                if (!wasRequestLaunchedBefore) {
-                    recordRequestLaunched()
-                }
-            }
-
             currentOnPermissionResult.value(granted)
 
             scope.launch { grantedFromRequest.emit(granted) }
@@ -59,6 +57,7 @@ fun rememberPermissionState(
         SinglePermissionState(
             accompanistPermissionState = permissionState,
             requestHistory = { currentRequestHistory.value },
+            wasRequestLaunchedBefore = { currentWasRequestLaunchedBefore.value },
             grantedFromRequest = grantedFromRequest,
             onRequestSuppressed = { currentOnRequestSuppressed.value() }
         )
@@ -73,8 +72,9 @@ fun rememberPermissionState(
  * surface, and [PermissionState.grantedFromRequest] for observing whether
  * explicit requests granted the complete represented permission requirement.
  *
- * [requestHistory] is consulted when deciding whether launching should be treated
- * as suppressed and is updated when the first launched request produces a result.
+ * [requestHistory] supplies persisted request history and records a launch while
+ * its latest collected value is false. Pass `null` to launch without tracking or
+ * suppression.
  *
  * [onPermissionsResult] receives Accompanist's individual result for every requested
  * permission. [onRequestSuppressed] is invoked when
@@ -85,7 +85,7 @@ fun rememberPermissionState(
 @Composable
 fun rememberPermissionState(
     permissions: List<String>,
-    requestHistory: PermissionRequestHistory,
+    requestHistory: PermissionRequestHistory?,
     onPermissionsResult: (Map<String, Boolean>) -> Unit = {},
     onRequestSuppressed: () -> Unit = {}
 ): PermissionState {
@@ -93,19 +93,15 @@ fun rememberPermissionState(
 
     val grantedFromRequest = remember(permissions) { MutableSharedFlow<Boolean>() }
 
+    val wasRequestLaunchedBefore = requestHistory?.wasRequestLaunchedBefore?.collectAsState(initial = false)?.value
     val currentRequestHistory = rememberUpdatedState(requestHistory)
+    val currentWasRequestLaunchedBefore = rememberUpdatedState(wasRequestLaunchedBefore)
     val currentOnPermissionsResult = rememberUpdatedState(onPermissionsResult)
     val currentOnRequestSuppressed = rememberUpdatedState(onRequestSuppressed)
 
     val permissionsState = rememberAccompanistMultiplePermissionsState(
         permissions = permissions,
         onPermissionsResult = { result ->
-            with(currentRequestHistory.value) {
-                if (!wasRequestLaunchedBefore) {
-                    recordRequestLaunched()
-                }
-            }
-
             currentOnPermissionsResult.value(result)
 
             scope.launch {
@@ -120,6 +116,7 @@ fun rememberPermissionState(
         MultiplePermissionState(
             accompanistPermissionsState = permissionsState,
             requestHistory = { currentRequestHistory.value },
+            wasRequestLaunchedBefore = { currentWasRequestLaunchedBefore.value },
             grantedFromRequest = grantedFromRequest,
             onRequestSuppressed = { currentOnRequestSuppressed.value() }
         )

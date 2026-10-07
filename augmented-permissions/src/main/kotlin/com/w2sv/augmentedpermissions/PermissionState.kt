@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.SharedFlow
  *   surface regardless of whether one or multiple permissions are represented
  * - exposes [grantedFromRequest], allowing multiple consumers to independently
  *   observe the result of explicit permission requests
- * - tracks whether a request has previously been launched so that a request that
- *   is considered suppressed can be handled explicitly through [launchRequest]
+ * - optionally tracks whether a request has previously been launched so that a
+ *   request that is considered suppressed can be handled through [launchRequest]
  *
  * The distinction between a single permission and a set of permissions is an
  * implementation detail. [isGranted] represents whether the complete permission
@@ -45,8 +45,9 @@ interface PermissionState {
     /**
      * Whether launching the represented permission request is considered suppressed.
      *
-     * A request is considered suppressed when it has previously been launched and
-     * Android no longer indicates that a permission rationale should be shown.
+     * A request is considered suppressed when history is provided, the requirement
+     * is not granted, it has previously been launched, and Android no longer
+     * indicates that a permission rationale should be shown.
      */
     val isLaunchingSuppressed: Boolean
 
@@ -74,9 +75,10 @@ interface PermissionState {
     /**
      * Launches the represented permission request unless it is considered suppressed.
      *
-     * A request is considered suppressed when it has previously been launched and
-     * Android no longer indicates that a rationale should be shown. In that case,
-     * [onSuppressed] is invoked instead of launching the platform request.
+     * A request is considered suppressed when history is provided, the requirement
+     * is not granted, it has previously been launched, and Android no longer
+     * indicates that a rationale should be shown. In that case, [onSuppressed]
+     * is invoked instead of launching the platform request.
      *
      * When [onSuppressed] is `null`, the default suppression callback supplied to
      * [rememberPermissionState] is used.

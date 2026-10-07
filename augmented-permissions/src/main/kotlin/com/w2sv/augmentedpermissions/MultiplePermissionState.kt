@@ -5,11 +5,13 @@ import kotlinx.coroutines.flow.SharedFlow
 
 internal class MultiplePermissionState(
     private val accompanistPermissionsState: AccompanistMultiplePermissionsState,
-    requestHistory: () -> PermissionRequestHistory,
+    requestHistory: () -> PermissionRequestHistory?,
+    wasRequestLaunchedBefore: () -> Boolean?,
     grantedFromRequest: SharedFlow<Boolean>,
     onRequestSuppressed: () -> Unit
 ) : BasePermissionState(
     requestHistory = requestHistory,
+    wasRequestLaunchedBefore = wasRequestLaunchedBefore,
     grantedFromRequest = grantedFromRequest,
     onRequestSuppressed = onRequestSuppressed
 ) {

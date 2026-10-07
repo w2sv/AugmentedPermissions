@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -34,7 +35,7 @@ class PermissionStateTest {
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(cameraPermission)
 
         val state = setPermissionContent {
-            rememberPermissionState(cameraPermission, TestPermissionRequestHistory())
+            rememberPermissionState(cameraPermission, TestPermissionRequestHistory().history)
         }
 
         assertState(state, isGranted = true)
@@ -43,7 +44,7 @@ class PermissionStateTest {
     @Test
     fun `single permission exposes revoked state`() {
         val state = setPermissionContent {
-            rememberPermissionState(cameraPermission, TestPermissionRequestHistory())
+            rememberPermissionState(cameraPermission, TestPermissionRequestHistory().history)
         }
 
         assertState(state, revokedPermissions = listOf(cameraPermission))
@@ -54,7 +55,7 @@ class PermissionStateTest {
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(cameraPermission)
 
         val state = setPermissionContent {
-            rememberPermissionState(permissions, TestPermissionRequestHistory())
+            rememberPermissionState(permissions, TestPermissionRequestHistory().history)
         }
 
         assertState(state, revokedPermissions = listOf(audioPermission))
@@ -63,10 +64,7 @@ class PermissionStateTest {
     @Test
     fun `request is suppressed only after a previous launch without rationale`() {
         val state = setPermissionContent {
-            rememberPermissionState(
-                cameraPermission,
-                TestPermissionRequestHistory(wasRequestLaunchedBefore = true)
-            )
+            rememberPermissionState(cameraPermission, TestPermissionRequestHistory(true).history)
         }
 
         assertState(
@@ -77,15 +75,59 @@ class PermissionStateTest {
     }
 
     @Test
+    fun `granted permission is not considered suppressed despite request history`() {
+        shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(cameraPermission)
+
+        val state = setPermissionContent {
+            rememberPermissionState(cameraPermission, TestPermissionRequestHistory(true).history)
+        }
+
+        assertState(state, isGranted = true)
+    }
+
+    @Test
+    fun `untracked single permission launches and reports its result`() {
+        var result: Boolean? = null
+        val state = setPermissionContent {
+            rememberPermissionState(
+                permission = cameraPermission,
+                requestHistory = null,
+                onPermissionResult = { result = it }
+            )
+        }
+
+        assertState(state, revokedPermissions = listOf(cameraPermission))
+        launchAndRespond(state, cameraPermission to false)
+        composeTestRule.waitUntil { result != null }
+
+        assertEquals(false, result)
+    }
+
+    @Test
+    fun `untracked multiple permissions launch and report their results`() {
+        var result: Map<String, Boolean>? = null
+        val state = setPermissionContent {
+            rememberPermissionState(
+                permissions = permissions,
+                requestHistory = null,
+                onPermissionsResult = { result = it }
+            )
+        }
+
+        assertState(state, revokedPermissions = permissions)
+        launchAndRespond(state, cameraPermission to true, audioPermission to false)
+        composeTestRule.waitUntil { result != null }
+
+        assertEquals(mapOf(cameraPermission to true, audioPermission to false), result)
+    }
+
+    @Test
     fun `rationale keeps a repeated request launchable`() {
         shadowOf(composeTestRule.activity.packageManager)
             .setShouldShowRequestPermissionRationale(cameraPermission, true)
 
         val state = setPermissionContent {
-            rememberPermissionState(
-                cameraPermission,
-                TestPermissionRequestHistory(wasRequestLaunchedBefore = true)
-            )
+            rememberPermissionState(cameraPermission, TestPermissionRequestHistory(true).history)
         }
 
         assertState(
@@ -101,7 +143,7 @@ class PermissionStateTest {
         val state = setPermissionContent {
             rememberPermissionState(
                 permission = cameraPermission,
-                requestHistory = TestPermissionRequestHistory(wasRequestLaunchedBefore = true),
+                requestHistory = TestPermissionRequestHistory(true).history,
                 onRequestSuppressed = { callbacks += "default" }
             )
         }
@@ -122,7 +164,7 @@ class PermissionStateTest {
         val state = setPermissionContent(onFlowResult = { flowResult = it }) {
             rememberPermissionState(
                 permission = cameraPermission,
-                requestHistory = history,
+                requestHistory = history.history,
                 onPermissionResult = { callbackResult = it }
             )
         }
@@ -136,6 +178,41 @@ class PermissionStateTest {
     }
 
     @Test
+    fun `request history is recorded when the request launches`() {
+        val history = TestPermissionRequestHistory()
+        val state = setPermissionContent {
+            rememberPermissionState(
+                cameraPermission,
+                requestHistory = history.history
+            )
+        }
+
+        composeTestRule.runOnIdle {
+            state.launchRequest()
+            assertRecordedOnce(history)
+        }
+    }
+
+    @Test
+    fun `history flow updates suppression state`() {
+        val history = TestPermissionRequestHistory()
+        val state = setPermissionContent {
+            rememberPermissionState(
+                permission = cameraPermission,
+                requestHistory = history.history
+            )
+        }
+
+        assertState(state, revokedPermissions = listOf(cameraPermission))
+        composeTestRule.runOnIdle {
+            history.wasRequestLaunchedBefore.value = true
+        }
+        composeTestRule.waitUntil { state.isLaunchingSuppressed }
+
+        assertState(state, isLaunchingSuppressed = true, revokedPermissions = listOf(cameraPermission))
+    }
+
+    @Test
     fun `multiple request publishes individual and aggregate results`() {
         val history = TestPermissionRequestHistory()
         var callbackResult: Map<String, Boolean>? = null
@@ -143,7 +220,7 @@ class PermissionStateTest {
         val state = setPermissionContent(onFlowResult = { flowResult = it }) {
             rememberPermissionState(
                 permissions = permissions,
-                requestHistory = history,
+                requestHistory = history.history,
                 onPermissionsResult = { callbackResult = it }
             )
         }
@@ -232,17 +309,19 @@ class PermissionStateTest {
 
     private fun assertRecordedOnce(history: TestPermissionRequestHistory) {
         assertEquals(1, history.recordCount)
-        assertEquals(true, history.wasRequestLaunchedBefore)
+        assertEquals(true, history.wasRequestLaunchedBefore.value)
     }
 }
 
-private class TestPermissionRequestHistory(override var wasRequestLaunchedBefore: Boolean = false) : PermissionRequestHistory {
+private class TestPermissionRequestHistory(requestedBefore: Boolean = false) {
+    val wasRequestLaunchedBefore = MutableStateFlow(requestedBefore)
+    val history = PermissionRequestHistory(wasRequestLaunchedBefore, ::recordRequestLaunched)
 
     var recordCount = 0
         private set
 
-    override fun recordRequestLaunched() {
+    fun recordRequestLaunched() {
         recordCount++
-        wasRequestLaunchedBefore = true
+        wasRequestLaunchedBefore.value = true
     }
 }

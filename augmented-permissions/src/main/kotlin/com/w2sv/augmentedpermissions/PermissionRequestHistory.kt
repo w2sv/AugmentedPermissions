@@ -1,26 +1,12 @@
 package com.w2sv.augmentedpermissions
 
+import kotlinx.coroutines.flow.Flow
+
 /**
- * Provides the persisted request history required by [PermissionState]
- * to distinguish an initial permission request from one that is considered
- * suppressed.
+ * Bundles an application's persisted request history with the action that records a launch.
  *
- * The history's storage mechanism is deliberately left to the consumer.
- * [recordRequestLaunched] should cause [wasRequestLaunchedBefore] to subsequently
- * reflect that a request has already been made.
+ * The library collects [wasRequestLaunchedBefore] while the permission state is composed.
+ * The flow can initially emit `false` while persistence loads; no separate loading state
+ * is required. [recordRequestLaunched] should arrange for a later `true` emission.
  */
-interface PermissionRequestHistory {
-
-    /**
-     * Whether the represented permission request has previously been launched.
-     * This must NOT be a compose snapshot value.
-     */
-    val wasRequestLaunchedBefore: Boolean
-
-    /**
-     * Records that the represented permission request has been launched, thereby changing the subsequent return value of
-     * [wasRequestLaunchedBefore].
-     * Will only be called if [wasRequestLaunchedBefore] returns false on receiving the permission request result.
-     */
-    fun recordRequestLaunched()
-}
+class PermissionRequestHistory(val wasRequestLaunchedBefore: Flow<Boolean>, val recordRequestLaunched: () -> Unit)
